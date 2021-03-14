@@ -12,16 +12,7 @@ from tqdm.notebook import tqdm
 from scipy.stats import spearmanr
 
 
-def load_model_fsent():
-    return BertForSequenceClassification.from_pretrained(
-        args['model_type'],
-        num_labels=2,
-        output_attentions=False,
-        output_hidden_states=False
-    )
-
-
-def load_model_pair():
+def load_model():
     return BertForSequenceClassification.from_pretrained(
         args['model_type'],
         num_labels=2,
@@ -37,39 +28,23 @@ def load_tokenizer():
     )
 
 
-def get_optimizer_fsent(model):
+def get_optimizer(model, lr, eps):
     return AdamW(
         model.parameters(),
-        lr=args['lr_fsent'],
-        eps=args['adam_eps_fsent']
+        lr=lr,
+        eps=eps
     )
 
 
-def get_optimizer_pair(model):
-    return AdamW(
-        model.parameters(),
-        lr=args['lr_pair'],
-        eps=args['adam_eps_pair']
-    )
-
-
-def get_scheduler_fsent(optimizer, num_training_steps):
+def get_scheduler(optimizer, num_warmup_steps, num_training_steps):
     return get_linear_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=args['warmup_steps_fsent'],
+        num_warmup_steps=num_warmup_steps,
         num_training_steps=num_training_steps
     )
 
 
-def get_scheduler_pair(optimizer, num_training_steps):
-    return get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=args['warmup_steps_pair'],
-        num_training_steps=num_training_steps
-    )
-
-
-def train(model, model_name, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
+def train_fsent(model, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
     # set seed
     set_seed()
 
@@ -87,7 +62,7 @@ def train(model, model_name, dataloaders, dataset_sizes, optimizer, scheduler, n
 
     # iterate through each epoch
     for epoch in range(num_epochs):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('Epoch {}/{}'.format(epoch + 1, num_epochs))
         print('-' * 10)
 
         # each epoch has a training and validation phase
@@ -171,7 +146,7 @@ def train(model, model_name, dataloaders, dataset_sizes, optimizer, scheduler, n
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
                 best_epoch = epoch
-                torch.save(model, f'{model_name}_model_checkpoint.pt')
+                torch.save(model, 'fsent_model_checkpoint.pt')
                 print('Best model so far! Saved checkpoint.')
 
         print()
@@ -185,6 +160,137 @@ def train(model, model_name, dataloaders, dataset_sizes, optimizer, scheduler, n
     # load best model weights
     model.load_state_dict(best_model_wts)
     return model, best_epoch, losses, accuracies
+
+
+def train_pair(model, device, val_set, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
+    # set seed
+    set_seed()
+
+    # starting time
+    since = time.time()
+
+    # store model that yields the highest Spearman correlation in the validation set
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_corr = float('-inf')
+    best_epoch = 0
+
+    # keep track of the statistics
+    losses = {'train': [], 'val': []}
+    accuracies = {'train': [], 'val': []}
+    corrs = {'val': []}
+
+    # iterate through each epoch
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch + 1, num_epochs))
+        print('-' * 10)
+
+        # each epoch has a training and validation phase
+        for phase in ['train', 'val']:
+
+            # skip if we don't run a phase (e.g., validation)
+            if phase not in dataloaders:
+                continue
+
+            if phase == 'train':
+                model.train()  # set model to training mode
+            else:
+                model.eval()   # set model to evaluate mode
+
+            # loss and number of correct predictions
+            running_loss = 0.0
+            running_corrects = 0
+            running_data = 0
+
+            # iterate over each batch
+            with tqdm(dataloaders[phase], unit="batch") as tepoch:
+                for batch in tepoch:
+                    # Unravel inputs
+                    input_ids = batch['input_ids'].to(device)
+                    if 'token_type_ids' in batch:
+                        # pairwise prediction
+                        token_type_ids = batch['token_type_ids'].to(device)
+                    else:
+                        # first sentence prediction
+                        token_type_ids = None
+                    attention_mask = batch['attention_mask'].to(device)
+                    labels = batch['label'].to(device)
+
+                    # reset the parameter gradients
+                    optimizer.zero_grad()
+
+                    # forward
+                    # track history only in train
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(
+                            input_ids=input_ids,
+                            token_type_ids=token_type_ids,
+                            attention_mask=attention_mask,
+                            labels=labels
+                        )
+                        loss = outputs.loss
+                        logits = outputs.logits
+                        preds = torch.argmax(logits, axis=1)
+
+                        # backward only if in training
+                        if phase == 'train':
+                            loss.backward()
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(),
+                                1.0
+                            )
+                            optimizer.step()
+                            scheduler.step()
+
+                    # add to statistics
+                    running_loss += loss.item() * len(labels)
+                    running_corrects += torch.sum(
+                        preds == labels.data.flatten()
+                    )
+                    running_data += len(labels)
+
+                    # update progress bar
+                    tepoch.set_postfix(
+                        loss=(running_loss / running_data),
+                        accuracy=(running_corrects.item() / running_data)
+                    )
+                    time.sleep(0.1)
+
+            # compute loss and accuracy at epoch level
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+            losses[phase].append(epoch_loss)
+            accuracies[phase].append(epoch_acc)
+
+            print('{} Loss: {:.4f}; Acc: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc
+            ))
+
+        # --- Spearman's Correlation --- #
+
+        model.eval()
+        epoch_corr, _ = evaluate(
+            val_set, device, model_fsent, model, tokenizer)
+        corrs['val'].append(epoch_corr)
+
+        # deep copy the model when epoch spearman correlation (on validation set) is the best so far
+        if epoch_corr > best_corr:
+            best_corr = epoch_corr
+            best_model_wts = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            torch.save(model, 'pair_model_checkpoint.pt')
+            print('Best model so far! Saved checkpoint.')
+
+        print()
+
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60
+    ))
+    print('Best Val Corr: {:4f} at Epoch: {:d}'.format(best_corr, best_epoch))
+
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    return model, best_epoch, losses, accuracies, corrs
 
 
 def predict_submission(docs, device, model_fsent, model_pair, tokenizer):
@@ -208,23 +314,30 @@ def predict_submission(docs, device, model_fsent, model_pair, tokenizer):
     return pd.DataFrame(preds)
 
 
-def evaluate(docs, device, model_fsent, model_pair, tokenizer, num_samples=100):
-    set_seed()
-    sample_docs = random.sample(docs, num_samples)
+def evaluate(docs, device, model_fsent, model_pair, tokenizer, num_samples=None):
+    if num_samples:
+        set_seed()
+        docs = random.sample(docs, num_samples)
     running_corr = 0
-    with tqdm(total=num_samples) as pbar:
-        for i, doc in enumerate(sample_docs):
+    worst_corr_docs, worst_corr = [], float('inf')
+    with tqdm(total=len(docs)) as pbar:
+        for i, doc in enumerate(docs):
             gold_index = doc['indexes']
             pred_index = predict(doc, device, model_fsent,
                                  model_pair, tokenizer)
             corr, _ = spearmanr(gold_index, pred_index)
             running_corr += corr
+            if corr < worst_corr:
+                worst_corr = corr
+                worst_corr_docs = [doc]
+            elif corr == worst_corr:
+                worst_corr_docs.append(doc)
             pbar.update(1)
             pbar.set_postfix(
                 spearman=(running_corr / (i + 1))
             )
             time.sleep(0.1)
-    return running_corr / num_samples
+    return running_corr / len(docs), worst_corr_docs
 
 
 def predict(doc, device, model_fsent, model_pair, tokenizer):
@@ -236,22 +349,28 @@ def predict(doc, device, model_fsent, model_pair, tokenizer):
     num_vertices = len(doc['sentences'])
     graph = make_graph(num_vertices, pair_logits)
     # sort and get the order
-    order, weight = graph.max_flow(fsent_pos)
+    if args['graph_method'] == 'max_flow':
+        order, weight = graph.max_flow(fsent_pos)
+    elif args['graph_method'] == 'greedy':
+        order, weight = graph.greedy(fsent_pos)
+    else:
+        raise InvalidInputError()
     # get indices
-    index = [-1] * num_vertices
+    indexes = [-1] * num_vertices
     for p, o in enumerate(order):
-        index[o] = p
-    return index
+        indexes[o] = p
+    return indexes
 
 
 def predict_fsent_pos(doc, device, model, tokenizer):
+    model.eval()
     fsent_pos, max_logit = None, float('-inf')
     for i, text in enumerate(doc['sentences']):
         cleaned_text = clean_text(text)
         encoding = tokenizer.encode_plus(
             cleaned_text,
             add_special_tokens=True,
-            max_length=args['max_seq_length_fsent'],
+            max_length=args['model_fsent']['max_length'],
             return_token_type_ids=False,
             padding='max_length',
             truncation=True,
@@ -272,6 +391,7 @@ def predict_fsent_pos(doc, device, model, tokenizer):
 
 
 def predict_pair_logits(doc, device, model, tokenizer):
+    model.eval()
     pair_logits = []
     perms = list(permutations(enumerate(doc['sentences']), 2))
     for (a, text_a), (b, text_b) in perms:
@@ -281,32 +401,33 @@ def predict_pair_logits(doc, device, model, tokenizer):
             cleaned_text_a,
             cleaned_text_b,
             add_special_tokens=True,
-            max_length=args['max_seq_length_pair'],
+            max_length=args['model_pair']['max_length'],
             return_token_type_ids=True,
             padding='max_length',
             truncation=True,
             return_attention_mask=True,
             return_tensors='pt'
         )
-        if len(encoding['input_ids']) > args['max_seq_length_pair']:
+        if len(encoding['input_ids']) > args['model_pair']['max_length']:
             cleaned_text_a, cleaned_text_b = truncate_texts(
                 cleaned_text_a,
                 cleaned_text_b,
                 tokenizer,
-                args['max_seq_length_pair']
+                args['model_pair']['max_length']
             )
             encoding = tokenizer.encode_plus(
                 cleaned_text_a,
                 cleaned_text_b,
                 add_special_tokens=True,
-                max_length=args['max_seq_length_pair'],
+                max_length=args['model_pair']['max_length'],
                 return_token_type_ids=True,
                 padding='max_length',
                 truncation=True,
                 return_attention_mask=True,
                 return_tensors='pt'
             )
-            assert len(encoding['input_ids']) <= args['max_seq_length_pair']
+            assert len(encoding['input_ids']
+                       ) <= args['model_pair']['max_length']
         outputs = model(
             input_ids=encoding.input_ids.to(device),
             token_type_ids=encoding.token_type_ids.to(device),

@@ -1,6 +1,7 @@
 import random
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 
 def get_device():
@@ -14,13 +15,14 @@ def set_seed():
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def plot_statistics(measure, values):
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(15, 10))
     plt.title("train/validation {}".format(measure))
-    plt.plot(values['train'], label='train')
-    plt.plot(values['val'], label='val')
+    for label, value in values.items():
+        plt.plot(value, label=label)
     plt.xlabel('num_epochs', fontsize=12)
     plt.ylabel(measure)
     plt.legend(loc='best')

@@ -17,17 +17,13 @@ def load_dataset(file):
     return dataset
 
 
-def load_labeled_dataset():
-    return load_dataset(args['data_dir'] + args['labeled_filename'])
-
-
-def load_pred_dataset():
-    return load_dataset(args['data_dir'] + args['pred_filename'])
-
-
-def split_labeled_set(dataset, val_size=0.2):
+def get_train_val_set(dataset, num_val, num_train=None):
     set_seed()
-    train_set, val_set = train_test_split(dataset, test_size=val_size)
+    if num_train:
+        retain_set = random.sample(dataset, num_train + num_val)
+    else:
+        retain_set = dataset
+    train_set, val_set = train_test_split(retain_set, test_size=num_val)
     print("train_set size: {:d}\nval_set size: {:d}".format(
         len(train_set), len(val_set)
     ))
@@ -62,10 +58,7 @@ class FirstSentenceDataset(Dataset):
         for i, doc in enumerate(data):
             for j, text in enumerate(doc['sentences']):
                 guid = '{:d}-{:d}'.format(i, j)
-                if 'indexes' in doc:
-                    index = doc['indexes'][j]
-                else:
-                    index = -1
+                index = doc['indexes'][j]
                 label = 1 if index == 0 else 0
                 labels.append(label)
                 sentences.append(Sentence(guid, text, index, label))
@@ -121,12 +114,9 @@ class SentencePairDataset(Dataset):
             perms = list(permutations(enumerate(doc['sentences']), 2))
             for (a, text_a), (b, text_b) in perms:
                 guid = "{:d}-{:d}-{:d}".format(i, a, b)
-                if 'indexes' in doc:
-                    index_a = doc['indexes'][a]
-                    index_b = doc['indexes'][b]
-                    label = 1 if (index_b - index_a) == 1 else 0
-                else:
-                    index_a, index_b, label = -1, -1, -1
+                index_a = doc['indexes'][a]
+                index_b = doc['indexes'][b]
+                label = 1 if (index_b - index_a) == 1 else 0
                 labels.append(label)
                 sentence_pairs.append(SentencePair(
                     guid, text_a, text_b, index_a, index_b, label
@@ -217,7 +207,7 @@ def truncate_texts(text_a, text_b, tokenizer, max_length):
     return text_a, text_b
 
 
-def get_weights_for_balanced_classes(dataset, target_ratio=0.3):
+def get_weights_for_balanced_classes(dataset, target_ratio=0.5):
     labels = dataset.labels
     label_counts = Counter(labels)
     num_ones = label_counts[1]
