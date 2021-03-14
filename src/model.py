@@ -44,7 +44,7 @@ def get_scheduler(optimizer, num_warmup_steps, num_training_steps):
     )
 
 
-def train_fsent(model, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
+def train_fsent(model, device, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
     # set seed
     set_seed()
 
@@ -146,7 +146,9 @@ def train_fsent(model, dataloaders, dataset_sizes, optimizer, scheduler, num_epo
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
                 best_epoch = epoch
-                torch.save(model, 'fsent_model_checkpoint.pt')
+                torch.save(model, '{:s}fsent_model_checkpoint.pt'.format(
+                    args['dir'] + args['model_output_dir']
+                ))
                 print('Best model so far! Saved checkpoint.')
 
         print()
@@ -162,7 +164,7 @@ def train_fsent(model, dataloaders, dataset_sizes, optimizer, scheduler, num_epo
     return model, best_epoch, losses, accuracies
 
 
-def train_pair(model, device, val_set, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
+def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
     # set seed
     set_seed()
 
@@ -269,7 +271,8 @@ def train_pair(model, device, val_set, dataloaders, dataset_sizes, optimizer, sc
 
         model.eval()
         epoch_corr, _ = evaluate(
-            val_set, device, model_fsent, model, tokenizer)
+            val_set, device, model_fsent, model, tokenizer
+        )
         corrs['val'].append(epoch_corr)
 
         # deep copy the model when epoch spearman correlation (on validation set) is the best so far
@@ -277,7 +280,9 @@ def train_pair(model, device, val_set, dataloaders, dataset_sizes, optimizer, sc
             best_corr = epoch_corr
             best_model_wts = copy.deepcopy(model.state_dict())
             best_epoch = epoch
-            torch.save(model, 'pair_model_checkpoint.pt')
+            torch.save(model, '{:s}pair_model_checkpoint.pt'.format(
+                args['dir'] + args['model_output_dir']
+            ))
             print('Best model so far! Saved checkpoint.')
 
         print()

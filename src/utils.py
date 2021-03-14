@@ -1,3 +1,5 @@
+from src.config import *
+
 import random
 import numpy as np
 import torch

@@ -1,8 +1,7 @@
 from src.utils import *
 from src.config import *
 
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.data import RandomSampler, WeightedRandomSampler, SequentialSampler
+from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
 from itertools import permutations
 from collections import namedtuple, Counter

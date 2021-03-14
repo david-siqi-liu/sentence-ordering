@@ -1,12 +1,13 @@
 args = {
-    'data_dir': 'data/',
-    'labeled_filename': 'train.pkl',
-    'pred_filename': 'test.pkl',
+    'dir': '/content/drive/MyDrive/Colab Notebooks/sentence-ordering/',
+    'labeled_filename': 'data/train.pkl',
+    'pred_filename': 'data/test.pkl',
+    'model_output_dir': 'trained/',
     'seed': 647,
     'num_train_docs': int(1e5),
     'num_val_docs': int(5e2),
-    'model_type': 'bert-base-uncased',
-    'do_lower_case': True,
+    'model_type': 'bert-base-cased',
+    'do_lower_case': False,
     'graph_method': 'max_flow',
     'model_fsent': {
         'max_length': 128,
@@ -20,10 +21,10 @@ args = {
     },
     'model_pair': {
         'max_length': 256,
-        'num_train_samples': int(5e4),
+        'num_train_samples': int(1e4),
         'target_ratio': 0.5,
-        'num_epochs': 10,
-        'batch_size': 16,
+        'num_epochs': 20,
+        'batch_size': 32,
         'lr': 5e-5,
         'adam_eps': 1e-8,
         'warmup_steps': 0
