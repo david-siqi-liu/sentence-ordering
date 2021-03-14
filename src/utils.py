@@ -21,10 +21,10 @@ def set_seed():
 
 
 def plot_statistics(measure, values):
-    fig = plt.figure(figsize=(15, 10))
-    plt.title("train/validation {}".format(measure))
+    fig = plt.figure(figsize=(10, 5))
+    plt.title("Measure: {}".format(measure))
     for label, value in values.items():
         plt.plot(value, label=label)
-    plt.xlabel('num_epochs', fontsize=12)
+    plt.xlabel('Epoch', fontsize=12)
     plt.ylabel(measure)
     plt.legend(loc='best')

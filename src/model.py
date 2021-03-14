@@ -164,7 +164,7 @@ def train_fsent(model, device, dataloaders, dataset_sizes, optimizer, scheduler,
     return model, best_epoch, losses, accuracies
 
 
-def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, dataset_sizes, optimizer, scheduler, num_epochs):
+def train_pair(model, model_fsent, tokenizer, device, val_set, train_dataloader, optimizer, scheduler, num_epochs):
     # set seed
     set_seed()
 
@@ -173,13 +173,13 @@ def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, data
 
     # store model that yields the highest Spearman correlation in the validation set
     best_model_wts = copy.deepcopy(model.state_dict())
-    best_corr = float('-inf')
+    best_spearman = float('-inf')
     best_epoch = 0
 
     # keep track of the statistics
-    losses = {'train': [], 'val': []}
-    accuracies = {'train': [], 'val': []}
-    corrs = {'val': []}
+    losses = {'train': []}
+    accuracies = {'train': []}
+    spearmans = {'val': []}
 
     # iterate through each epoch
     for epoch in range(num_epochs):
@@ -189,52 +189,43 @@ def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, data
         # each epoch has a training and validation phase
         for phase in ['train', 'val']:
 
-            # skip if we don't run a phase (e.g., validation)
-            if phase not in dataloaders:
-                continue
-
             if phase == 'train':
                 model.train()  # set model to training mode
-            else:
-                model.eval()   # set model to evaluate mode
 
-            # loss and number of correct predictions
-            running_loss = 0.0
-            running_corrects = 0
-            running_data = 0
+                # loss and number of correct predictions
+                running_loss = 0.0
+                running_corrects = 0
+                running_data = 0
 
-            # iterate over each batch
-            with tqdm(dataloaders[phase], unit="batch") as tepoch:
-                for batch in tepoch:
-                    # Unravel inputs
-                    input_ids = batch['input_ids'].to(device)
-                    if 'token_type_ids' in batch:
-                        # pairwise prediction
+                # iterate over each batch
+                with tqdm(train_dataloader, unit="batch") as tepoch:
+                    for batch in tepoch:
+                        # Unravel inputs
+                        input_ids = batch['input_ids'].to(device)
                         token_type_ids = batch['token_type_ids'].to(device)
-                    else:
-                        # first sentence prediction
-                        token_type_ids = None
-                    attention_mask = batch['attention_mask'].to(device)
-                    labels = batch['label'].to(device)
+                        attention_mask = batch['attention_mask'].to(device)
+                        labels = batch['label'].to(device)
 
-                    # reset the parameter gradients
-                    optimizer.zero_grad()
+                        # number of data points
+                        n_data = len(labels)
 
-                    # forward
-                    # track history only in train
-                    with torch.set_grad_enabled(phase == 'train'):
-                        outputs = model(
-                            input_ids=input_ids,
-                            token_type_ids=token_type_ids,
-                            attention_mask=attention_mask,
-                            labels=labels
-                        )
-                        loss = outputs.loss
-                        logits = outputs.logits
-                        preds = torch.argmax(logits, axis=1)
+                        # reset the parameter gradients
+                        optimizer.zero_grad()
+                        model.zero_grad()
 
-                        # backward only if in training
-                        if phase == 'train':
+                        # forward
+                        # track history only in train
+                        with torch.set_grad_enabled(True):
+                            outputs = model(
+                                input_ids=input_ids,
+                                token_type_ids=token_type_ids,
+                                attention_mask=attention_mask,
+                                labels=labels
+                            )
+                            loss = outputs.loss
+                            logits = outputs.logits
+                            preds = torch.argmax(logits, axis=1)
+
                             loss.backward()
                             torch.nn.utils.clip_grad_norm_(
                                 model.parameters(),
@@ -243,47 +234,47 @@ def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, data
                             optimizer.step()
                             scheduler.step()
 
-                    # add to statistics
-                    running_loss += loss.item() * len(labels)
-                    running_corrects += torch.sum(
-                        preds == labels.data.flatten()
-                    )
-                    running_data += len(labels)
+                        # add to statistics
+                        running_loss += loss.item() * n_data
+                        running_corrects += torch.sum(
+                            preds == labels.data.flatten()
+                        )
+                        running_data += n_data
 
-                    # update progress bar
-                    tepoch.set_postfix(
-                        loss=(running_loss / running_data),
-                        accuracy=(running_corrects.item() / running_data)
-                    )
-                    time.sleep(0.1)
+                        # update progress bar
+                        tepoch.set_postfix(
+                            loss=(running_loss / running_data),
+                            accuracy=(running_corrects.item() / running_data)
+                        )
+                        time.sleep(0.1)
 
-            # compute loss and accuracy at epoch level
-            epoch_loss = running_loss / dataset_sizes[phase]
-            epoch_acc = running_corrects.double() / dataset_sizes[phase]
-            losses[phase].append(epoch_loss)
-            accuracies[phase].append(epoch_acc)
+                # compute loss and accuracy at epoch level
+                epoch_loss = running_loss / running_data
+                epoch_acc = running_corrects.double() / running_data
+                losses['train'].append(epoch_loss)
+                accuracies['train'].append(epoch_acc)
 
-            print('{} Loss: {:.4f}; Acc: {:.4f}'.format(
-                phase, epoch_loss, epoch_acc
-            ))
+                print('{} Loss: {:.4f}; Acc: {:.4f}'.format(
+                    phase, epoch_loss, epoch_acc
+                ))
 
-        # --- Spearman's Correlation --- #
+            else:
+                model.eval()   # set model to evaluate mode
 
-        model.eval()
-        epoch_corr, _ = evaluate(
-            val_set, device, model_fsent, model, tokenizer
-        )
-        corrs['val'].append(epoch_corr)
+                epoch_spearman, _ = evaluate(
+                    val_set, device, model_fsent, model, tokenizer
+                )
+                spearmans['val'].append(epoch_spearman)
 
-        # deep copy the model when epoch spearman correlation (on validation set) is the best so far
-        if epoch_corr > best_corr:
-            best_corr = epoch_corr
-            best_model_wts = copy.deepcopy(model.state_dict())
-            best_epoch = epoch
-            torch.save(model, '{:s}pair_model_checkpoint.pt'.format(
-                args['dir'] + args['model_output_dir']
-            ))
-            print('Best model so far! Saved checkpoint.')
+                # deep copy the model when epoch spearman correlation (on validation set) is the best so far
+                if epoch_spearman > best_spearman:
+                    best_spearman = epoch_spearman
+                    best_model_wts = copy.deepcopy(model.state_dict())
+                    best_epoch = epoch
+                    torch.save(model, '{:s}pair_model_checkpoint.pt'.format(
+                        args['dir'] + args['model_output_dir']
+                    ))
+                    print('Best model so far! Saved checkpoint.')
 
         print()
 
@@ -291,11 +282,13 @@ def train_pair(model, model_fsent, tokenizer, device, val_set, dataloaders, data
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60
     ))
-    print('Best Val Corr: {:4f} at Epoch: {:d}'.format(best_corr, best_epoch))
+    print('Best Val Spearman: {:4f} at Epoch: {:d}'.format(
+        best_spearman, best_epoch
+    ))
 
     # load best model weights
     model.load_state_dict(best_model_wts)
-    return model, best_epoch, losses, accuracies, corrs
+    return model, best_epoch, losses, accuracies, spearmans
 
 
 def predict_submission(docs, device, model_fsent, model_pair, tokenizer):
@@ -323,26 +316,26 @@ def evaluate(docs, device, model_fsent, model_pair, tokenizer, num_samples=None)
     if num_samples:
         set_seed()
         docs = random.sample(docs, num_samples)
-    running_corr = 0
-    worst_corr_docs, worst_corr = [], float('inf')
+    running_spearman = 0
+    worst_spearman_docs, worst_spearman = [], float('inf')
     with tqdm(total=len(docs)) as pbar:
         for i, doc in enumerate(docs):
             gold_index = doc['indexes']
             pred_index = predict(doc, device, model_fsent,
                                  model_pair, tokenizer)
-            corr, _ = spearmanr(gold_index, pred_index)
-            running_corr += corr
-            if corr < worst_corr:
-                worst_corr = corr
-                worst_corr_docs = [doc]
-            elif corr == worst_corr:
-                worst_corr_docs.append(doc)
+            spearman, _ = spearmanr(gold_index, pred_index)
+            running_spearman += spearman
+            if spearman < worst_spearman:
+                worst_spearman = spearman
+                worst_spearman_docs = [doc]
+            elif spearman == worst_spearman:
+                worst_spearman_docs.append(doc)
             pbar.update(1)
             pbar.set_postfix(
-                spearman=(running_corr / (i + 1))
+                spearman=(running_spearman / (i + 1))
             )
             time.sleep(0.1)
-    return running_corr / len(docs), worst_corr_docs
+    return running_spearman / len(docs), worst_spearman_docs
 
 
 def predict(doc, device, model_fsent, model_pair, tokenizer):
@@ -398,7 +391,7 @@ def predict_fsent_pos(doc, device, model, tokenizer):
 def predict_pair_logits(doc, device, model, tokenizer):
     model.eval()
     pair_logits = []
-    perms = list(permutations(enumerate(doc['sentences']), 2))
+    perms = list(combinations(enumerate(doc['sentences']), 2))
     for (a, text_a), (b, text_b) in perms:
         cleaned_text_a = clean_text(text_a)
         cleaned_text_b = clean_text(text_b)
@@ -447,5 +440,6 @@ def make_graph(num_vertices, pair_logits):
     graph = Graph(num_vertices)
     # add edge weights
     for a, b, [logit0, logit1] in pair_logits:
-        graph.addEdge(a, b, logit1)
+        graph.add_edge(a, b, logit1)
+        graph.add_edge(b, a, logit0)
     return graph

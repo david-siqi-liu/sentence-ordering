@@ -7,7 +7,7 @@ class Graph:
         self.graph = [[None for _ in range(num_vertices)]
                       for _ in range(num_vertices)]
 
-    def addEdge(self, u, v, w):
+    def add_edge(self, u, v, w):
         self.graph[u][v] = w
 
     def max_flow(self, start):
@@ -29,13 +29,13 @@ class Graph:
 
     def get_path_weight_and_pos_count(self, path):
         weight, pos_count = 0, 0
-        for i in range(len(path) - 1):
-            u, v = path[i], path[i + 1]
-            w = self.graph[u][v]
-            assert w != None
-            weight += w
-            if w > 0:
-                pos_count += 1
+        for i, u in enumerate(path[:-1]):
+            for v in path[i + 1:]:
+                w = self.graph[u][v]
+                assert w != None
+                weight += w
+                if w > 0:
+                    pos_count += 1
         return weight, pos_count
 
     def greedy(self, start):

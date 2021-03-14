@@ -3,7 +3,7 @@ from src.config import *
 
 from torch.utils.data import Dataset
 from sklearn.model_selection import train_test_split
-from itertools import permutations
+from itertools import combinations
 from collections import namedtuple, Counter
 from math import floor
 import torch
@@ -106,20 +106,38 @@ class SentencePairDataset(Dataset):
         self.max_length = max_length
 
     def _get_sentence_pairs(self, data):
+        set_seed()
         sentence_pairs = []
         labels = []
         for i, doc in enumerate(data):
-            # all pairwise permutations of the sentences
-            perms = list(permutations(enumerate(doc['sentences']), 2))
+            # all pairwise combinations of the sentences
+            perms = list(combinations(enumerate(doc['sentences']), 2))
             for (a, text_a), (b, text_b) in perms:
                 guid = "{:d}-{:d}-{:d}".format(i, a, b)
+                # gold indexes
                 index_a = doc['indexes'][a]
                 index_b = doc['indexes'][b]
-                label = 1 if (index_b - index_a) == 1 else 0
-                labels.append(label)
-                sentence_pairs.append(SentencePair(
-                    guid, text_a, text_b, index_a, index_b, label
-                ))
+                # assign predecessor and successor
+                if index_a < index_b:
+                    index_pred, index_succ = index_a, index_b
+                    text_pred, text_succ = text_a, text_b
+                else:
+                    index_pred, index_succ = index_b, index_a
+                    text_pred, text_succ = text_b, text_a
+                # randomly decide what to predict
+                r = random.random()
+                if r >= 0.5:
+                    # true sample
+                    labels.append(1)
+                    sentence_pairs.append(SentencePair(
+                        guid, text_pred, text_succ, index_pred, index_succ, 1
+                    ))
+                else:
+                    # false sample
+                    labels.append(0)
+                    sentence_pairs.append(SentencePair(
+                        guid, text_succ, text_pred, index_succ, index_pred, 0
+                    ))
         print("Dataset loaded. Size: {:d}".format(len(sentence_pairs)))
         return sentence_pairs, labels
 
