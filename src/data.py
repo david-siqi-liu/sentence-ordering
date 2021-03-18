@@ -191,6 +191,7 @@ class SentencePairDataset(Dataset):
             'index_b': sentence_pair.index_b,
             'label': torch.LongTensor([sentence_pair.label]),
             'input_ids': encoding['input_ids'].flatten(),
+            'token_type_ids': encoding['token_type_ids'].flatten(),
             'attention_mask': encoding['attention_mask'].flatten()
         }
 

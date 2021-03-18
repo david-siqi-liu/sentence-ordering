@@ -82,17 +82,13 @@ def train_fsent(model, device, dataloaders, dataset_sizes, optimizer, scheduler,
                 for batch in tepoch:
                     # Unravel inputs
                     input_ids = batch['input_ids'].to(device)
-                    if 'token_type_ids' in batch:
-                        # pairwise prediction
-                        token_type_ids = batch['token_type_ids'].to(device)
-                    else:
-                        # first sentence prediction
-                        token_type_ids = None
+                    token_type_ids = None
                     attention_mask = batch['attention_mask'].to(device)
                     labels = batch['label'].to(device)
 
                     # reset the parameter gradients
                     optimizer.zero_grad()
+                    model.zero_grad()
 
                     # forward
                     # track history only in train
@@ -145,7 +141,7 @@ def train_fsent(model, device, dataloaders, dataset_sizes, optimizer, scheduler,
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
                 best_model_wts = copy.deepcopy(model.state_dict())
-                best_epoch = epoch
+                best_epoch = epoch + 1
                 torch.save(model, '{:s}fsent_model_checkpoint.pt'.format(
                     args['dir'] + args['model_output_dir']
                 ))
@@ -270,7 +266,7 @@ def train_pair(model, model_fsent, tokenizer, device, val_set, train_dataloader,
                 if epoch_spearman > best_spearman:
                     best_spearman = epoch_spearman
                     best_model_wts = copy.deepcopy(model.state_dict())
-                    best_epoch = epoch
+                    best_epoch = epoch + 1
                     torch.save(model, '{:s}pair_model_checkpoint.pt'.format(
                         args['dir'] + args['model_output_dir']
                     ))

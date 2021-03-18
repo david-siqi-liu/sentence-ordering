@@ -17,26 +17,21 @@ class Graph:
         else:
             candidate_paths = [list(p) for p in list(
                 permutations(list(range(0, self.num_vertices)), self.num_vertices))]
-        best_path, max_pos_count, max_weight = None, \
-            float('-inf'), float('-inf')
+        best_path, max_weight = None, float('-inf')
         for path in candidate_paths:
-            weight, pos_count = self.get_path_weight_and_pos_count(path)
-            if pos_count > max_pos_count:
-                best_path, max_pos_count, max_weight = path, pos_count, weight
-            elif (pos_count == max_pos_count) and (weight > max_weight):
+            weight = self.get_total_pairwise_weights(path)
+            if weight > max_weight:
                 best_path, max_weight = path, weight
         return best_path, max_weight
 
-    def get_path_weight_and_pos_count(self, path):
-        weight, pos_count = 0, 0
+    def get_total_pairwise_weights(self, path):
+        weight = 0
         for i, u in enumerate(path[:-1]):
             for v in path[i + 1:]:
                 w = self.graph[u][v]
                 assert w != None
                 weight += w
-                if w > 0:
-                    pos_count += 1
-        return weight, pos_count
+        return weight
 
     def greedy(self, start):
         if start != None:
