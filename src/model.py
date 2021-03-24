@@ -391,6 +391,14 @@ def predict_pair_logits(doc, device, model, tokenizer):
     for (a, text_a), (b, text_b) in perms:
         cleaned_text_a = clean_text(text_a)
         cleaned_text_b = clean_text(text_b)
+
+        cleaned_text_a, cleaned_text_b = truncate_texts(
+            cleaned_text_a,
+            cleaned_text_b,
+            tokenizer,
+            args['model_pair']['max_length']
+        )
+
         encoding = tokenizer.encode_plus(
             cleaned_text_a,
             cleaned_text_b,
@@ -398,30 +406,13 @@ def predict_pair_logits(doc, device, model, tokenizer):
             max_length=args['model_pair']['max_length'],
             return_token_type_ids=True,
             padding='max_length',
-            truncation=True,
+            truncation=False,
             return_attention_mask=True,
             return_tensors='pt'
         )
-        if len(encoding['input_ids']) > args['model_pair']['max_length']:
-            cleaned_text_a, cleaned_text_b = truncate_texts(
-                cleaned_text_a,
-                cleaned_text_b,
-                tokenizer,
-                args['model_pair']['max_length']
-            )
-            encoding = tokenizer.encode_plus(
-                cleaned_text_a,
-                cleaned_text_b,
-                add_special_tokens=True,
-                max_length=args['model_pair']['max_length'],
-                return_token_type_ids=True,
-                padding='max_length',
-                truncation=True,
-                return_attention_mask=True,
-                return_tensors='pt'
-            )
-            assert len(encoding['input_ids']
-                       ) <= args['model_pair']['max_length']
+
+        assert len(encoding['input_ids']) <= args['model_pair']['max_length']
+
         outputs = model(
             input_ids=encoding.input_ids.to(device),
             token_type_ids=encoding.token_type_ids.to(device),

@@ -149,6 +149,13 @@ class SentencePairDataset(Dataset):
         cleaned_text_a = clean_text(sentence_pair.text_a)
         cleaned_text_b = clean_text(sentence_pair.text_b)
 
+        cleaned_text_a, cleaned_text_b = truncate_texts(
+            cleaned_text_a,
+            cleaned_text_b,
+            self.tokenizer,
+            self.max_length
+        )
+
         encoding = self.tokenizer.encode_plus(
             cleaned_text_a,
             cleaned_text_b,
@@ -156,30 +163,12 @@ class SentencePairDataset(Dataset):
             max_length=self.max_length,
             return_token_type_ids=True,
             padding='max_length',
-            truncation=True,
+            truncation=False,
             return_attention_mask=True,
             return_tensors='pt'
         )
 
-        if len(encoding['input_ids']) > self.max_length:
-            cleaned_text_a, cleaned_text_b = truncate_texts(
-                cleaned_text_a,
-                cleaned_text_b,
-                self.tokenizer,
-                self.max_length
-            )
-            encoding = self.tokenizer.encode_plus(
-                cleaned_text_a,
-                cleaned_text_b,
-                add_special_tokens=True,
-                max_length=self.max_length,
-                return_token_type_ids=True,
-                padding='max_length',
-                truncation=True,
-                return_attention_mask=True,
-                return_tensors='pt'
-            )
-            assert len(encoding['input_ids']) <= self.max_length
+        assert len(encoding['input_ids']) <= self.max_length
 
         return {
             'guid': sentence_pair.guid,

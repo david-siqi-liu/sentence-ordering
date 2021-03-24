@@ -6,8 +6,8 @@ args = {
     'seed': 647,
     'num_train_docs': int(1e5),
     'num_val_docs': int(5e2),
-    'model_type': 'bert-base-cased',
-    'do_lower_case': False,
+    'model_type': 'bert-base-uncased',
+    'do_lower_case': True,
     'graph_method': 'max_flow',
     'model_fsent': {
         'max_length': 64,
@@ -21,7 +21,7 @@ args = {
     },
     'model_pair': {
         'max_length': 128,
-        'num_train_samples': int(1e4),
+        'num_train_samples': int(3e4),
         'num_epochs': 30,
         'batch_size': 32,
         'lr': 5e-5,
